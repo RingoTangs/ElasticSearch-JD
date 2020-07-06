@@ -1,0 +1,5 @@
+server:
+  port: 1997
+# 关闭thymeleaf的缓存
+  thymeleaf:
+    cache: false
