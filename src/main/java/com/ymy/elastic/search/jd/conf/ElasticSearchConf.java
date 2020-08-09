@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class ElasticSearchConf {
-    @Bean
+    @Bean(name = "client")
     public RestHighLevelClient restHighLevelClient() {
         RestHighLevelClient client = new RestHighLevelClient(RestClient.builder(new HttpHost("39.97.3.60",9200)));
         return client;

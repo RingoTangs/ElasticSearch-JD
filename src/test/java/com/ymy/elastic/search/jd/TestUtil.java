@@ -51,7 +51,7 @@ public class TestUtil {
 
     @Test
     public void testSearch() throws Exception {
-        SimpleResponse jk = contentService.searchByKeyword(Constant.JD_GOODS_INDEX, "acvasd", 0, 20);
+        SimpleResponse jk = contentService.searchByKeyword(Constant.JD_GOODS_INDEX, "jk", 0, 20);
         System.out.println(jk);
     }
 

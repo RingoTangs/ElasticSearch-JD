@@ -16,7 +16,6 @@ import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.MatchQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder;
@@ -26,6 +25,7 @@ import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -33,7 +33,7 @@ import java.util.Map;
 public class ElasticSearchUtil {
 
     @Resource
-    private RestHighLevelClient restHighLevelClient;
+    private RestHighLevelClient client;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -48,7 +48,7 @@ public class ElasticSearchUtil {
         // 1、创建索引请求
         CreateIndexRequest request = new CreateIndexRequest(index);
         // 2、执行创建请求
-        CreateIndexResponse response = restHighLevelClient.indices().create(request, RequestOptions.DEFAULT);
+        CreateIndexResponse response = client.indices().create(request, RequestOptions.DEFAULT);
         // 3、返回结果
         return response.isAcknowledged();
     }
@@ -60,12 +60,16 @@ public class ElasticSearchUtil {
         // 1、获得索引请求
         GetIndexRequest request = new GetIndexRequest(index);
         // 2、执行请求
-        boolean ret = restHighLevelClient.indices().exists(request, RequestOptions.DEFAULT);
+        boolean ret = client.indices().exists(request, RequestOptions.DEFAULT);
         return ret;
     }
 
     /**
      * 在ES中批量插入数据
+     *
+     * @param index 索引名字
+     * @param list  要插入的文档
+     * @return true 插入成功 false插入失败
      */
     public boolean bulkAddDocs(String index, List<? extends Object> list) throws Exception {
         // 1、创建批量添加请求
@@ -74,59 +78,64 @@ public class ElasticSearchUtil {
 
         // 2、将数据放到请求中
         for (int i = 0; i < list.size(); i++) {
-            bulkRequest.add(
-                    new IndexRequest(index)
-                            .source(objectMapper.writeValueAsString(list.get(i)), XContentType.JSON));
+            bulkRequest.add(new IndexRequest(index)
+                    .source(objectMapper.writeValueAsString(list.get(i)), XContentType.JSON));
         }
         // 3、执行请求
-        BulkResponse bulkResponse = restHighLevelClient.bulk(bulkRequest, RequestOptions.DEFAULT);
+        BulkResponse bulkResponse = client.bulk(bulkRequest, RequestOptions.DEFAULT);
         return !bulkResponse.hasFailures();
     }
 
     /**
-     * 在ES中搜索
+     * 在ES中按照关键字检索文档
+     *
+     * @param index    索引名字
+     * @param keyword  关键字
+     * @param pageNo   当前页
+     * @param pageSize 页面大小
+     * @return 检索结果
      */
     public List<Map<String, Object>> searchByKeyword(String index, String keyword, Integer pageNo, Integer pageSize) throws Exception {
         // 1、创建查询请求
-        SearchRequest searchRequest = new SearchRequest(index);
-        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
-        // 2、添加搜索条件
-        MatchQueryBuilder matchQueryBuilder = QueryBuilders.matchQuery(Constant.JD_GOODS_FIELD_TITLE, keyword);
-        searchSourceBuilder.query(matchQueryBuilder);
-        // 设置分页
-        searchSourceBuilder.from(pageNo);
-        searchSourceBuilder.size(pageSize);
-        //设置查询的超时时间
-        searchSourceBuilder.timeout(TimeValue.timeValueSeconds(60));
+        SearchRequest request = new SearchRequest(index);
+
 
         // 设置高亮
-        HighlightBuilder highlightBuilder = new HighlightBuilder();
-        highlightBuilder.requireFieldMatch(false); //关闭多个高亮字段显示
-        highlightBuilder.field(Constant.JD_GOODS_FIELD_TITLE);
-        highlightBuilder.preTags("<span style='color:red'>");
-        highlightBuilder.postTags("</span>");
-        searchSourceBuilder.highlighter(highlightBuilder);
+        HighlightBuilder highlightBuilder = new HighlightBuilder()
+                .requireFieldMatch(false)    //关闭多个高亮字段显示
+                .field(Constant.JD_GOODS_FIELD_TITLE)    // 高亮字段
+                .preTags("<span style='color:red'>")    // H5标签前缀
+                .postTags("</span>");      // H5标签后缀
+
+        // 2、添加搜索条件
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder()
+                .query(QueryBuilders.matchQuery(Constant.JD_GOODS_FIELD_TITLE, keyword)) // 查询条件
+                .from(pageNo) // 当前页
+                .size(pageSize) // 页面大小
+                .timeout(TimeValue.timeValueSeconds(60)) // 超时时间
+                .highlighter(highlightBuilder); // 设置高亮
 
         // 3、执行请求
-        searchRequest.source(searchSourceBuilder);
-        SearchResponse searchResponse = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+        request.source(searchSourceBuilder);
+        SearchResponse response = client.search(request, RequestOptions.DEFAULT);
 
         // 4、解析结果
         List<Map<String, Object>> result = new ArrayList<>();
-        SearchHit[] hits = searchResponse.getHits().getHits();
+        SearchHit[] hits = response.getHits().getHits(); // 获取到SearchHit数组
+
         for (SearchHit hit : hits) {
             Map<String, Object> sourceAsMap = hit.getSourceAsMap();
-            // 解析高亮的字段
+            // 解析高亮字段(将高亮字段替换到_source中并保存)
             Map<String, HighlightField> highlightFields = hit.getHighlightFields();
             HighlightField title = highlightFields.get(Constant.JD_GOODS_FIELD_TITLE);
             if (title != null) {
                 Text[] fragments = title.fragments();
-                String n_title = "";
+                String newTitle = "";
                 for (Text fragment : fragments) {
-                    n_title += fragment;
+                    newTitle += fragment;
                 }
                 // 替换原来的title
-                sourceAsMap.put(Constant.JD_GOODS_FIELD_TITLE, n_title);
+                sourceAsMap.put(Constant.JD_GOODS_FIELD_TITLE, newTitle);
             }
             result.add(sourceAsMap);
         }
